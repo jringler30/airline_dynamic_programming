@@ -495,3 +495,141 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# --------------------------------------------------
+# SECTION 7: Task 3 & 4 (Flexible Policy & Sensitivity)
+# --------------------------------------------------
+
+def solve_dp_flexible(max_coach=130):
+    """
+    Task 3: Solve DP where 'No Sale' is an option.
+    Hard cap is fixed at 130, but the airline can choose p=0 for coach.
+    """
+    max_first = FIRST_CAPACITY
+    # value[t, coach_sold, first_sold]
+    value = np.zeros((SELLING_HORIZON + 1, max_coach + 1, max_first + 1))
+
+    # Base Case (t=0): terminal_cost logic remains the same
+    for cs in range(max_coach + 1):
+        for fs in range(max_first + 1):
+            value[0, cs, fs] = -terminal_cost(cs, fs)
+
+    # Backward Induction
+    for t in range(1, SELLING_HORIZON + 1):
+        if t % 100 == 0:
+            print(f"    [Flexible Policy] Processing Day {t}...", end="\r")
+            
+        for cs in range(max_coach + 1):
+            for fs in range(max_first + 1):
+                
+                # Actions: (Price, Probability)
+                # Task 3 adds (0, 0.0) as a strategic choice
+                coach_actions = [(300, 0.65), (325, 0.45), (350, 0.30), (0, 0.0)]
+                first_actions = [(425, 0.08), (500, 0.04)]
+                
+                best_ev = -np.inf
+                
+                for cp, cq in coach_actions:
+                    for fp, fq in first_actions:
+                        
+                        # Apply First-Class sold-out boost (4 percentage points)
+                        p_c = cq
+                        if fs == max_first and cp > 0:
+                            p_c = min(1.0, cq + 0.04)
+                        
+                        p_f = fq
+                        
+                        # Boundary checks: if we physically hit 130 or 20, prob is 0
+                        if cs >= max_coach: p_c = 0.0
+                        if fs >= max_first: p_f = 0.0
+                        
+                        # Future states
+                        v_none = value[t-1, cs, fs]
+                        v_c    = value[t-1, min(cs+1, max_coach), fs]
+                        v_f    = value[t-1, cs, min(fs+1, max_first)]
+                        v_both = value[t-1, min(cs+1, max_coach), min(fs+1, max_first)]
+                        
+                        # Expected Value calculation (same logic as group mate)
+                        ev = ( (1-p_c)*(1-p_f) * (DAILY_DISCOUNT * v_none) +
+                               p_c*(1-p_f)     * (cp + DAILY_DISCOUNT * v_c) +
+                               (1-p_c)*p_f     * (fp + DAILY_DISCOUNT * v_f) +
+                               p_c*p_f         * (cp + fp + DAILY_DISCOUNT * v_both) )
+                        
+                        if ev > best_ev:
+                            best_ev = ev
+                            
+                value[t, cs, fs] = best_ev
+                
+    return value[SELLING_HORIZON, 0, 0]
+
+def run_sensitivity_analysis(best_limit, multipliers):
+    """
+    Task 4: Re-solve the Part 2 DP with shifted demand probabilities.
+    """
+    results = []
+    # Store original demand to restore after loop
+    orig_coach = COACH_DEMAND.copy()
+    orig_first = FIRST_DEMAND.copy()
+
+    print(f"\n  {'Multiplier':>12} | {'Expected Profit':>18}")
+    print("  " + "-" * 35)
+
+    for m in multipliers:
+        # Update Global Demands for the solver
+        for p in COACH_DEMAND: COACH_DEMAND[p] = orig_coach[p] * m
+        for p in FIRST_DEMAND: FIRST_DEMAND[p] = orig_first[p] * m
+        
+        # We use the best limit found in Step 2
+        profit = solve_dp(best_limit)
+        results.append((m, profit))
+        print(f"  {m:>12.2f} | ${profit:>17,.2f}")
+
+    # Restore original values
+    for p in orig_coach: COACH_DEMAND[p] = orig_coach[p]
+    for p in orig_first: FIRST_DEMAND[p] = orig_first[p]
+    
+    return results
+
+def plot_task_4(sensitivity_results):
+    mults, profits = zip(*sensitivity_results)
+    plt.figure(figsize=(10, 5))
+    plt.plot(mults, profits, marker='D', color='darkred', linewidth=2)
+    plt.title('Task 4: Sensitivity of Profit to Demand Fluctuations', fontweight='bold')
+    plt.xlabel('Demand Multiplier (1.0 = Baseline)')
+    plt.ylabel('Expected Profit ($)')
+    plt.grid(True, alpha=0.3)
+    plt.gca().yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'${x:,.0f}'))
+    plt.show()
+
+def main_v2():
+    # 1. Run Baseline (Assuming Task 2 found limit 15 as an example)
+    print("\n" + "="*60)
+    print("  AIRLINE OPTIMIZATION: TASKS 3 & 4")
+    print("="*60)
+    
+    # Run Task 3
+    print("\n  TASK 3: Solving Flexible 'No Sale' Policy (Limit 130)...")
+    flex_profit = solve_dp_flexible(max_coach=130)
+    
+    # We need a Task 2 result for comparison (using limit 15 as placeholder)
+    task2_best_limit = 15 
+    task2_best_profit = solve_dp(task2_best_limit)
+    
+    print(f"\n  [Task 3 Result] Flexible Policy Profit: ${flex_profit:,.2f}")
+    print(f"  [Comparison]    Hard Cap (15) Profit:  ${task2_best_profit:,.2f}")
+    
+    if flex_profit > task2_best_profit:
+        print("  DECISION: Flexible Policy is SUPERIOR.")
+    else:
+        print("  DECISION: Hard Cap Policy is SUPERIOR.")
+
+    # Run Task 4
+    print("\n  TASK 4: Running Sensitivity Analysis on Sales Probabilities...")
+    multipliers = [0.90, 0.95, 1.0, 1.05, 1.10]
+    sens_results = run_sensitivity_analysis(task2_best_limit, multipliers)
+    
+    plot_task_4(sens_results)
+    print("\n  Analysis Complete.")
+
+if __name__ == "__main__":
+    main_v2()
